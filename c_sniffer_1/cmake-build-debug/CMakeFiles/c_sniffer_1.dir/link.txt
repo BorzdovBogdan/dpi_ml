@@ -1,1 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/cc  -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names  CMakeFiles/c_sniffer_1.dir/main.c.o  -o c_sniffer_1 /usr/lib/libpcap.dylib 
