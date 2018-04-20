@@ -1,126 +1,76 @@
+//
+// Created by bogdan on 20.04.18.
+//
 
+#include <string>
 #include <iostream>
-#include <fstream>
-#include <ctime>
-#include <vector>
-#include "dlib/svm.h"
-#include <sstream>
-#include "stdlib.h"
-using namespace dlib;
-using namespace std;
+#include "tensorflow/core/public/session.h"
+#include "tensorflow/core/graph/default_device.h"
+#include "external/nsync/public/nsync_cv.h"
+#include "tensorflow/core/platform/env.h"
 
-/*void csvWriter(int count){
-    std::ofstream myfile;
-    std::string s("checkData"+std::to_string(count));
-    myfile.open (s);
+/*#include "tensorflow/cc/client/client_session.h"
+#include "tensorflow/cc/ops/standard_ops.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/kernels/matmul_op.h"*/
+using namespace tensorflow;
 
-    srand(time(0));
-    for (int i = 0; i < count; ++i) {
+int main(int argc, char* argv[]) {
 
-        int weight = rand() % 100;
-        int age = rand() % 100;
+    /*Scope root = Scope::NewRootScope();
+    // Matrix A = [3 2; -1 0]
+    auto A = Const(root, { {3.f, 2.f}, {-1.f, 0.f} });
+    // Vector b = [3 5]
+    auto b = Const(root, { {3.f, 5.f} });
+    // v = Ab^T
+    auto v = MatMul(root.WithOpName("v"), A, b, MatMul::TransposeB(true));
+    std::vector<Tensor> outputs;
+    ClientSession session(root);
+    // Run and fetch v
+    TF_CHECK_OK(session.Run({v}, &outputs));
+    // Expect outputs[0] == [19; -3]
+    LOG(INFO) << outputs[0].matrix<float>();
+    return 0;*/
 
-        myfile << std::to_string(age)<<" "<<std::to_string(weight)<<" ";
-        bool isDiseased = false;
+    std::string graph_definition = "mlp.pb";
+    Session* session;
+    GraphDef graph_def;
+    SessionOptions opts;
+    std::vector<Tensor> outputs; // Store outputs
+    TF_CHECK_OK(ReadBinaryProto(Env::Default(), graph_definition, &graph_def));
 
-        if(weight <= 30 && weight>=15 && age <= 10 && age>=5){
-            isDiseased = false;
-        } else if(weight > 30 && age <= 10){
-            isDiseased = true;
-        } else if(weight <= 50 && age <= 15 && age > 10){
-            isDiseased = false;
-        } else if(weight <= 40 && age > 15){
-            isDiseased = true;
-        } else if(weight >= 60 && weight <= 80 && age <= 80 && age > 18){
-            isDiseased = false;
-        } else if(weight > 80 && age <= 25){
-            isDiseased = true;
-        } else if(weight > 90 && age >= 40){
-            isDiseased = true;
-        }else if(weight < 90 && age >= 40){
-            isDiseased = false;
-        }else if(weight > 80 && age > 60){
-            isDiseased = true;
-        }
-        if(isDiseased){
-            myfile<<"1\n";
-        } else{
-            myfile<<"0\n";
-        }
+    // Set GPU options
+    graph::SetDefaultDevice("/gpu:0", &graph_def);
+    opts.config.mutable_gpu_options()->set_per_process_gpu_memory_fraction(0.5);
+    opts.config.mutable_gpu_options()->set_allow_growth(true);
+
+    // create a new session
+    TF_CHECK_OK(NewSession(opts, &session));
+
+    // Load graph into session
+    TF_CHECK_OK(session->Create(graph_def));
+
+    // Initialize our variables
+    TF_CHECK_OK(session->Run({}, {}, {"init_all_vars_op"}, nullptr));
+
+    Tensor x(DT_FLOAT, TensorShape({100, 32}));
+    Tensor y(DT_FLOAT, TensorShape({100, 8}));
+    auto _XTensor = x.matrix<float>();
+    auto _YTensor = y.matrix<float>();
+
+    _XTensor.setRandom();
+    _YTensor.setRandom();
+
+    for (int i = 0; i < 10; ++i) {
+        TF_CHECK_OK(session->Run({{"x", x}, {"y", y}}, {"cost"}, {}, &outputs));
+        float cost = outputs[0].scalar<float>()(0);
+        std::cout << "Cost: " <<  cost << std::endl;
+        TF_CHECK_OK(session->Run({{"x", x}, {"y", y}}, {}, {"train"}, nullptr));
+        outputs.clear();
     }
-    myfile.close();
-}*/
-
-void predictor(string file)
-{
-
-    typedef matrix<double, 2, 1> sample_type;
 
 
-    // This is a typedef for the type of kernel we are going to use in this example.
-    // In this case I have selected the radial basis kernel that can operate on our
-    // 2D sample_type objects
-    typedef radial_basis_kernel<sample_type> kernel_type;
-
-    // Here we create an instance of the pegasos svm trainer object we will be using.
-    svm_pegasos<kernel_type> trainer;
-    // Here we setup the parameters to this object.  See the dlib documentation for a
-    // description of what these parameters are.
-    trainer.set_lambda(0.00001);
-    trainer.set_kernel(kernel_type(0.005));
-
-    // Set the maximum number of support vectors we want the trainer object to use
-    // in representing the decision function it is going to learn.  In general,
-    // supplying a bigger number here will only ever give you a more accurate
-    // answer.  However, giving a smaller number will make the algorithm run
-    // faster and decision rules that involve fewer support vectors also take
-    // less time to evaluate.
-    trainer.set_max_num_sv(10);
-
-    std::vector<sample_type> samples;
-    std::vector<double> labels;
-
-    // make an instance of a sample matrix so we can use it below
-    sample_type sample;
-
-
-    // Now let's go into a loop and randomly generate 1000 samples.
-    ifstream infile;
-    infile.open(file);
-    string line;
-    string token;
-    int i = 0;
-    while(std::getline(infile, line))
-    {
-        std::istringstream ss(line);
-        std::getline(ss, token, ' ');
-        sample(0,0) = std::stoi(token);
-        std::getline(ss, token, ' ');
-        sample(0,1) = std::stoi(token);
-
-        samples.push_back(sample);
-        std::getline(ss, token, ' ');
-        if(token == "0"){
-            trainer.train(sample,+1);
-            labels.push_back(+1);
-        }else{
-            trainer.train(sample,-1);
-            labels.push_back(-1);
-        }
-    }
-    infile.close();
-
-    sample(0,0) = 30;
-    sample(0,1) = 70;
-    cout<<trainer(sample);
-    // At this point we have obtained a decision function from the above batch mode training.
-    // Now we can use it on some test samples exactly as we did above.
-}
-
-int main(){
-    //csvWriter(10);
-    //csvWriter(100);
-    //csvWriter(1000);
-    predictor("data1000");
+    session->Close();
+    delete session;
     return 0;
 }

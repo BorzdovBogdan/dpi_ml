@@ -213,7 +213,7 @@ int Sniffer::networkSniffer() {
         plotResults(upSize, "upLink");
         plotResults(downSize, "downLink");
         std::cout<<"Uplink"<<endl;
-        for(auto it = upSize.cbegin(); it != upSize.cend(); ++it)
+        /*for(auto it = upSize.cbegin(); it != upSize.cend(); ++it)
         {
             std::cout << it->first << " " << it->second << "\n";
         }
@@ -221,7 +221,7 @@ int Sniffer::networkSniffer() {
         for(auto it = downSize.cbegin(); it != downSize.cend(); ++it)
         {
             std::cout << it->first << " " << it->second << "\n";
-        }
+        }*/
 
     }
     pcap_freealldevs(alldevs);

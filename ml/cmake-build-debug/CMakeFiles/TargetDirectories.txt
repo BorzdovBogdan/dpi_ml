@@ -1,6 +1,0 @@
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/CMakeFiles/edit_cache.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/CMakeFiles/dlib_test.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/dlib_build/CMakeFiles/edit_cache.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/dlib_build/CMakeFiles/rebuild_cache.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/dlib_build/CMakeFiles/dlib.dir

@@ -1,3 +1,0 @@
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/dlib_build/cpp11_test_build/CMakeFiles/edit_cache.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/dlib_build/cpp11_test_build/CMakeFiles/rebuild_cache.dir
-/Users/bogdan/CLionProjects/dlib_test/cmake-build-debug/dlib_build/cpp11_test_build/CMakeFiles/cpp11_test.dir
