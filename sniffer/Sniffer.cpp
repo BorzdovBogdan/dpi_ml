@@ -4,7 +4,7 @@
 
 #include <sstream>
 #include "Sniffer.h"
-
+using namespace std;
 static string hostString;
 static string mode_type;
 static const char* fullHostAddress;
@@ -14,29 +14,22 @@ static std::map<string,int> upSize;
 static std::map<string,int> downSize;
 static string hostPrefix;
 static int readSec = 0;
-Sniffer::Sniffer(char mode) {
-    if(mode == 'n'){
-        mode_type = "net";
-    }
-    if(mode =='r'){
-        mode_type = "read";
-    }
-    if(mode == 'w'){
-        mode_type = "write";
-    }
+
+
+
+Sniffer::Sniffer(){
+    init();
 }
-void Sniffer::init(char mode) {
+Sniffer::Sniffer(char mode) {
 
 }
-int Sniffer::networkSniffer() {
+void Sniffer::init() {
     char c = getchar();
-    char errbuf[PCAP_ERRBUF_SIZE];
-    int num_packets = 50;
-    pcap_if_t *alldevs;
+
     int status = pcap_findalldevs(&alldevs, errbuf);
     if (status != 0) {
         printf("%s\n", errbuf);
-        return 1;
+        return;
     }
     if (!isHostFound) {
         bool flag = false;
@@ -59,268 +52,124 @@ int Sniffer::networkSniffer() {
         }
     }
     hostPrefix = split(fullHostAddress);
+    time(&timer);
+    tm_info = localtime(&timer);
 
-    pcap_dumper_t *pd;
-    int pcount = 0;
-    char prestr[80];
-    int linktype = 0;
-    struct pcap_stat ps;
+    strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+    puts(buffer);
+    num_packets= 70;            /* number of packets to capture */
 
-    while (c!='q') {
-        time_t timer;
-        //char buffer[26];
-        struct tm* tm_info;
+    char filter_exp[] = "ip";
+    dev = pcap_lookupdev(errbuf);
+    if (dev == NULL) {
+        fprintf(stderr, "Couldn't find default device: %s\n",
+                errbuf);
+    }
+    /* get network number and mask associated with capture device */
+    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+        fprintf(stderr, "Couldn't get netmask for device %s: %s\n",
+                dev, errbuf);
+        net = 0;
+        mask = 0;
+    }
 
-        time(&timer);
-        tm_info = localtime(&timer);
-
-        strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-        puts(buffer);
-
-        char *dev = NULL;            /* capture device name */
-            /* error buffer */
-        pcap_t *handle;                /* packet capture handle */
-
-        char filter_exp[] = "ip";        /* filter expression [3] */
-        struct bpf_program fp;            /* compiled filter program (expression) */
-        bpf_u_int32 mask;            /* subnet mask */
-        bpf_u_int32 net;            /* ip */
-        int num_packets = 70;            /* number of packets to capture */
+    /* print capture info */
+    printf("Device: %s\n", dev);
+    printf("Number of packets: %d\n", num_packets);
+    printf("Filter expression: %s\n", filter_exp);
 
 
-            dev = pcap_lookupdev(errbuf);
-            if (dev == NULL) {
-                fprintf(stderr, "Couldn't find default device: %s\n",
-                        errbuf);
-                exit(EXIT_FAILURE);
-            }
-            /* get network number and mask associated with capture device */
-            if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-                fprintf(stderr, "Couldn't get netmask for device %s: %s\n",
-                        dev, errbuf);
-                net = 0;
-                mask = 0;
-            }
+    handle = pcap_open_live(dev, SNAP_LEN, 1, 1000, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
+    }
 
-            /* print capture info */
-            printf("Device: %s\n", dev);
-            printf("Number of packets: %d\n", num_packets);
-            printf("Filter expression: %s\n", filter_exp);
+    /* make sure we're capturing on an Ethernet device [2] */
+    if (pcap_datalink(handle) != DLT_EN10MB) {
+        fprintf(stderr, "%s is not an Ethernet\n", dev);
+    }
 
+    /* compile the filter expression */
+    if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
+        fprintf(stderr, "Couldn't parse filter %s: %s\n",
+                filter_exp, pcap_geterr(handle));
+    }
 
-            handle = pcap_open_live(dev, SNAP_LEN, 1, 1000, errbuf);
-            if (handle == NULL) {
-                fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
-                exit(EXIT_FAILURE);
-            }
+    /* apply the compiled filter */
+    if (pcap_setfilter(handle, &fp) == -1) {
+        fprintf(stderr, "Couldn't install filter %s: %s\n",
+                filter_exp, pcap_geterr(handle));
+    }
 
-            /* make sure we're capturing on an Ethernet device [2] */
-            if (pcap_datalink(handle) != DLT_EN10MB) {
-                fprintf(stderr, "%s is not an Ethernet\n", dev);
-                exit(EXIT_FAILURE);
-            }
+}
 
-            /* compile the filter expression */
-            if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
-                fprintf(stderr, "Couldn't parse filter %s: %s\n",
-                        filter_exp, pcap_geterr(handle));
-                exit(EXIT_FAILURE);
-            }
+void Sniffer::sniffNetwork() {
 
-            /* apply the compiled filter */
-            if (pcap_setfilter(handle, &fp) == -1) {
-                fprintf(stderr, "Couldn't install filter %s: %s\n",
-                        filter_exp, pcap_geterr(handle));
-                exit(EXIT_FAILURE);
-            }
+    if (mode_type == "net") {
+        pcap_loop(handle, num_packets, this->pkt_callback, NULL);
+        pcap_freecode(&fp);
+        pcap_close(handle);
+    }
+}
+void Sniffer::sniffNetworkAndWrite() {
 
+    if ((pd = pcap_dump_open(handle, PCAP_SAVEFILE)) == NULL) {
+        /*
+         * Print out error message if pcap_dump_open failed. This will
+         * be the below message followed by the pcap library error text,
+         * obtained by pcap_geterr().
+         */
+        fprintf(stderr,
+                "Error opening savefile \"%s\" for writing: %s\n",
+                PCAP_SAVEFILE, pcap_geterr(handle));
 
-        if(mode_type == "net") {
-            pcap_loop(handle, num_packets, this->pkt_callback, NULL);
-            c = getchar();
+    }
 
-            pcap_freecode(&fp);
-            pcap_close(handle);
-        }else if(mode_type == "write") {
-            if ((pd = pcap_dump_open(handle, PCAP_SAVEFILE)) == NULL) {
-                /*
-                 * Print out error message if pcap_dump_open failed. This will
-                 * be the below message followed by the pcap library error text,
-                 * obtained by pcap_geterr().
-                 */
-                fprintf(stderr,
-                        "Error opening savefile \"%s\" for writing: %s\n",
-                        PCAP_SAVEFILE, pcap_geterr(handle));
-                exit(7);
-            }
-
-            if ((pcount = pcap_dispatch(handle, num_packets, &pcap_dump, (u_char *) pd)) < 0) {
-                /*
-                 * Print out appropriate text, followed by the error message
-                 * generated by the packet capture library.
-                 */
-                pcap_perror(handle, prestr);
-                exit(8);
-            }
-            printf("Packets received and successfully passed through filter: %d.\n",
-                   pcount);
-
-            /*
-             * Get and print the link layer type for the packet capture device,
-             * which is the network device selected for packet capture.
-             */
-            if (!(linktype = pcap_datalink(handle))) {
-
-                exit(9);
-            }
-
-            /*
-             * Get the packet capture statistics associated with this packet
-             * capture device. The values represent packet statistics from the time
-             * pcap_open_live() was called up until this call.
-             */
-            if (pcap_stats(handle, &ps) != 0) {
-                fprintf(stderr, "Error getting Packet Capture stats: %s\n",
-                        pcap_geterr(handle));
-                exit(10);
-            }
-
-            /* Print the statistics out */
-            printf("Packet Capture Statistics:\n");
-            printf("%d packets received by filter\n", ps.ps_recv);
-            printf("%d packets dropped by kernel\n", ps.ps_drop);
-            pcap_dump_close(pd);
-            pcap_freecode(&fp);
-            pcap_close(handle);
-
-        }
-        if(mode_type != "net") {
-            pcap_t *descr = pcap_open_offline(PCAP_SAVEFILE, errbuf);
-            if (descr == NULL) {
-                cout << "pcap_open_live() failed: " << errbuf << endl;
-                return 1;
-            }
-
-            if (pcap_loop(descr, num_packets, this->pkt_callback, NULL) < 0) {
-                cout << "pcap_loop() failed: " << pcap_geterr(descr);
-                return 1;
-            }
-        }
+    if ((pcount = pcap_dispatch(handle, num_packets, &pcap_dump, (u_char *) pd)) < 0) {
+        /*
+         * Print out appropriate text, followed by the error message
+         * generated by the packet capture library.
+         */
+        pcap_perror(handle, prestr);
+    }
+    printf("Packets received and successfully passed through filter: %d.\n",
+           pcount);
 
 
-        printf("\nCapture complete.\n");
-        c = getchar();
-        plotResults(upSize, "upLink");
-        plotResults(downSize, "downLink");
-        std::cout<<"Uplink"<<endl;
-        /*for(auto it = upSize.cbegin(); it != upSize.cend(); ++it)
-        {
-            std::cout << it->first << " " << it->second << "\n";
-        }
-        std::cout<<"DownLink"<<endl;
-        for(auto it = downSize.cbegin(); it != downSize.cend(); ++it)
-        {
-            std::cout << it->first << " " << it->second << "\n";
-        }*/
 
+    /*
+     * Get the packet capture statistics associated with this packet
+     * capture device. The values represent packet statistics from the time
+     * pcap_open_live() was called up until this call.
+     */
+    if (pcap_stats(handle, &ps) != 0) {
+        fprintf(stderr, "Error getting Packet Capture stats: %s\n",
+                pcap_geterr(handle));
+    }
+
+    /* Print the statistics out */
+    printf("Packet Capture Statistics:\n");
+    printf("%d packets received by filter\n", ps.ps_recv);
+    printf("%d packets dropped by kernel\n", ps.ps_drop);
+    pcap_dump_close(pd);
+    pcap_freecode(&fp);
+    pcap_close(handle);
+
+}
+
+void Sniffer::sniffFromFile() {
+    pcap_t *descr = pcap_open_offline(PCAP_SAVEFILE, errbuf);
+    if (descr == NULL) {
+        cout << "pcap_open_live() failed: " << errbuf << endl;
+    }
+
+    if (pcap_loop(descr, num_packets, this->pkt_callback, NULL) < 0) {
+        cout << "pcap_loop() failed: " << pcap_geterr(descr);
     }
     pcap_freealldevs(alldevs);
 }
-void Sniffer::print_hex_ascii_line(const char *payload, int len, int offset)
-{
 
-    int i;
-    int gap;
-    const char *ch;
-
-    /* offset */
-    printf("%05d   ", offset);
-
-    /* hex */
-    ch = payload;
-    for(i = 0; i < len; i++) {
-        printf("%02x ", *ch);
-        ch++;
-        /* print extra space after 8th byte for visual aid */
-        if (i == 7)
-            printf(" ");
-    }
-    /* print space to handle line less than 8 bytes */
-    if (len < 8)
-        printf(" ");
-
-    /* fill hex gap with spaces if not full line */
-    if (len < 16) {
-        gap = 16 - len;
-        for (i = 0; i < gap; i++) {
-            printf("   ");
-        }
-    }
-    printf("   ");
-
-    /* ascii (if printable) */
-    ch = payload;
-    for(i = 0; i < len; i++) {
-        if (isprint(*ch))
-            printf("%c", *ch);
-        else
-            printf(".");
-        ch++;
-    }
-
-    printf("\n");
-
-    return;
-}
-
-/*
- * print packet payload data (avoid printing binary data)
- */
-void Sniffer::print_payload(const char *payload, int len)
-{
-
-    int len_rem = len;
-    int line_width = 16;			/* number of bytes per line */
-    int line_len;
-    int offset = 0;					/* zero-based offset counter */
-    const char *ch = payload;
-
-    if (len <= 0)
-        return;
-
-    /* data fits on one line */
-    if (len <= line_width) {
-        print_hex_ascii_line(ch, len, offset);
-        return;
-    }
-
-    /* data spans multiple lines */
-    for ( ;; ) {
-        /* compute current line length */
-        line_len = line_width % len_rem;
-        /* print line */
-        print_hex_ascii_line(ch, line_len, offset);
-        /* compute total remaining */
-        len_rem = len_rem - line_len;
-        /* shift pointer to remaining bytes to print */
-        ch = ch + line_len;
-        /* add offset */
-        offset = offset + line_width;
-        /* check if we have line width chars or less */
-        if (len_rem <= line_width) {
-            /* print last line and get out */
-            print_hex_ascii_line(ch, len_rem, offset);
-            break;
-        }
-    }
-
-    return;
-}
-
-/*
- * dissect/print packet
- */
-void Sniffer::got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
 
     static int count = 1;                   /* packet counter */
@@ -374,9 +223,6 @@ void Sniffer::got_packet(u_char *args, const struct pcap_pkthdr *header, const u
             return;
     }
 
-    /*
-     *  OK, this packet is TCP.
-     */
 
     /* define/compute tcp header offset */
     tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
@@ -416,22 +262,6 @@ void Sniffer::got_packet(u_char *args, const struct pcap_pkthdr *header, const u
         upSize.insert(std::pair<string,int>(string(timeArray),0));
         std::cout<<"downlink"<<endl;
     }
-
-    /*
-     * Print payload data; it might be binary, so don't just
-     * treat it as a string.
-     */
-    if (size_payload > 0) {
-        printf("   Payload (%d bytes):\n", size_payload);
-        print_payload(payload, size_payload);
-    }
-
-
-
-    ///////
-
-
-    //pcap_dump_open_append()
 }
 
 void Sniffer::plotResults(map<string,int> data, string link) {
@@ -445,18 +275,18 @@ void Sniffer::plotResults(map<string,int> data, string link) {
         fprintf(gnuplotPipe, "plot \"%s\" with linespoints ls 1\n", tempDataFileName);
         fflush(gnuplotPipe);
 
-            tempDataFile = fopen(tempDataFileName, "w");
-            auto it = data.begin();
-            for (; it != data.end(); ++it) {
-                fprintf(tempDataFile, "%s %ld\n", (it->first).c_str(), (long) it->second);
-            }
-            fclose(tempDataFile);
+        tempDataFile = fopen(tempDataFileName, "w");
+        auto it = data.begin();
+        for (; it != data.end(); ++it) {
+            fprintf(tempDataFile, "%s %ld\n", (it->first).c_str(), (long) it->second);
+        }
+        fclose(tempDataFile);
 
 
         printf("press enter to continue...");
         getchar();
 
-            remove(tempDataFileName);
+        remove(tempDataFileName);
 
         fprintf(gnuplotPipe, "exit \n");
     } else {
