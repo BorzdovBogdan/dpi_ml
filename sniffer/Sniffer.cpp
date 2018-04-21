@@ -105,11 +105,11 @@ void Sniffer::init() {
 
 void Sniffer::sniffNetwork() {
 
-    if (mode_type == "net") {
+
         pcap_loop(handle, num_packets, this->pkt_callback, NULL);
         pcap_freecode(&fp);
         pcap_close(handle);
-    }
+    
 }
 void Sniffer::sniffNetworkAndWrite() {
 
