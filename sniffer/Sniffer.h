@@ -1,7 +1,6 @@
 //
 // Created by Bogdan on 07.04.18.
 //
-
 #ifndef C_SNIFFER_1_SNIFFER_H
 #define C_SNIFFER_1_SNIFFER_H
 
@@ -83,24 +82,43 @@ struct sniff_tcp {
     u_short th_urp;                 /* urgent pointer */
 };
 
-
-using namespace std;
-
 class Sniffer {
-    public:
-        void init(char mode);
-        int networkSniffer();
-        Sniffer(char mode);
+private:
 
-        void print_payload(const char *payload, int len);
-        void print_hex_ascii_line(const char *payload, int len, int offset);
-        void plotResults(map<string,int> data, string link);
-        void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
-        static void pkt_callback(u_char *user, const pcap_pkthdr *hdr, const u_char *bytes){
-            Sniffer *sniffer=reinterpret_cast<Sniffer *>(user);
-            sniffer->got_packet(user,hdr,bytes);
-        }
-    string split(string address);
+    time_t timer;
+    //char buffer[26];
+    struct tm *tm_info;
+    char *dev = NULL;            /* capture device name */
+    /* error buffer */
+    pcap_t *handle;                /* packet capture handle */
+           /* filter expression [3] */
+    struct bpf_program fp;            /* compiled filter program (expression) */
+    bpf_u_int32 mask;            /* subnet mask */
+    bpf_u_int32 net;            /* ip */
+    int num_packets;
+    pcap_dumper_t *pd;
+    int pcount = 0;
+    char prestr[80];
+    int linktype = 0;
+    struct pcap_stat ps;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_if_t *alldevs;
+
+    void init();
+public:
+    Sniffer();
+    Sniffer(char mode);
+    void sniffNetwork();
+    void sniffNetworkAndWrite();
+    void sniffFromFile();
+    void plotResults(std::map<std::string,int> data, std::string link);
+    void gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+    static void pkt_callback(u_char *user, const pcap_pkthdr *hdr, const u_char *bytes){
+        Sniffer *sniffer=reinterpret_cast<Sniffer *>(user);
+        sniffer->gotPacket(user, hdr, bytes);
+    }
+    std::string split(std::string address);
+
 };
 
 
