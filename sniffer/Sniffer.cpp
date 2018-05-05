@@ -4,28 +4,107 @@
 
 #include <sstream>
 #include "Sniffer.h"
-using namespace std;
-static string hostString;
-static string mode_type;
+
+#include <pcap.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdbool.h>
+#include <vector>
+#include <string>
+#include <map>
+#include <iostream>
+
+#define SNAP_LEN 65536
+
+
+#define SIZE_ETHERNET 14
+
+
+#define ETHER_ADDR_LEN  6
+#define PCAP_SAVEFILE "./pcap_savefile"
+
+#define IFSZ 16
+
+
+struct sniff_ethernet {
+    u_char  ether_dhost[ETHER_ADDR_LEN];    /* destination host address */
+    u_char  ether_shost[ETHER_ADDR_LEN];    /* source host address */
+    u_short ether_type;                     /* IP? ARP? RARP? etc */
+};
+
+
+struct sniff_ip {
+    u_char  ip_vhl;                 /* version << 4 | header length >> 2 */
+    u_char  ip_tos;                 /* type of service */
+    u_short ip_len;                 
+    u_short ip_id;                  
+    u_short ip_off;                 /* fragment offset field */
+#define IP_RF 0x8000            /* reserved fragment flag */
+#define IP_DF 0x4000            /* dont fragment flag */
+#define IP_MF 0x2000            /* more fragments flag */
+#define IP_OFFMASK 0x1fff       /* mask for fragmenting bits */
+    u_char  ip_ttl;                 /* time to live */
+    u_char  ip_p;                   /* protocol */
+    u_short ip_sum;                 /* checksum */
+    struct  in_addr ip_src,ip_dst;  /* source and dest address */
+};
+#define IP_HL(ip)               (((ip)->ip_vhl) & 0x0f)
+#define IP_V(ip)                (((ip)->ip_vhl) >> 4)
+
+
+typedef u_int tcp_seq;
+
+struct sniff_tcp {
+    u_short th_sport;               /* source port */
+    u_short th_dport;               /* destination port */
+    tcp_seq th_seq;                 /* sequence number */
+    tcp_seq th_ack;                 /* acknowledgement number */
+    u_char  th_offx2;               /* data offset, rsvd */
+#define TH_OFF(th)      (((th)->th_offx2 & 0xf0) >> 4)
+    u_char  th_flags;
+#define TH_FIN  0x01
+#define TH_SYN  0x02
+#define TH_RST  0x04
+#define TH_PUSH 0x08
+#define TH_ACK  0x10
+#define TH_URG  0x20
+#define TH_ECE  0x40
+#define TH_CWR  0x80
+#define TH_FLAGS        (TH_FIN|TH_SYN|TH_RST|TH_ACK|TH_URG|TH_ECE|TH_CWR)
+    u_short th_win;                 /* window */
+    u_short th_sum;                 /* checksum */
+    u_short th_urp;                 /* urgent pointer */
+};
+
+
+static std::string hostString;
+static std::string mode_type;
 static const char* fullHostAddress;
 static char buffer[26];
 static bool isHostFound = false;
-static std::map<string,int> upSize;
-static std::map<string,int> downSize;
-static string hostPrefix;
+static std::map<std::string,int> upSize;
+static std::map<std::string,int> downSize;
+static std::string hostPrefix;
 static int readSec = 0;
 
-
+using namespace std;
 
 Sniffer::Sniffer(){
+    this->num_packets = 10;
     init();
 }
-Sniffer::Sniffer(char mode) {
-
+Sniffer::Sniffer(int num_packets){
+    this->num_packets = num_packets;
+    init();
 }
 void Sniffer::init() {
-    char c = getchar();
-
     int status = pcap_findalldevs(&alldevs, errbuf);
     if (status != 0) {
         printf("%s\n", errbuf);
@@ -43,7 +122,6 @@ void Sniffer::init() {
                     hostString = string(fullHostAddress);
                     flag = true;
                     isHostFound = true;
-
                     break;
                 }
             }
@@ -57,15 +135,13 @@ void Sniffer::init() {
 
     strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
     puts(buffer);
-    num_packets= 70;            /* number of packets to capture */
-
+             
     char filter_exp[] = "ip";
     dev = pcap_lookupdev(errbuf);
     if (dev == NULL) {
         fprintf(stderr, "Couldn't find default device: %s\n",
                 errbuf);
     }
-    /* get network number and mask associated with capture device */
     if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
         fprintf(stderr, "Couldn't get netmask for device %s: %s\n",
                 dev, errbuf);
@@ -73,7 +149,6 @@ void Sniffer::init() {
         mask = 0;
     }
 
-    /* print capture info */
     printf("Device: %s\n", dev);
     printf("Number of packets: %d\n", num_packets);
     printf("Filter expression: %s\n", filter_exp);
@@ -84,18 +159,16 @@ void Sniffer::init() {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
     }
 
-    /* make sure we're capturing on an Ethernet device [2] */
     if (pcap_datalink(handle) != DLT_EN10MB) {
         fprintf(stderr, "%s is not an Ethernet\n", dev);
     }
 
-    /* compile the filter expression */
     if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
         fprintf(stderr, "Couldn't parse filter %s: %s\n",
                 filter_exp, pcap_geterr(handle));
     }
 
-    /* apply the compiled filter */
+    
     if (pcap_setfilter(handle, &fp) == -1) {
         fprintf(stderr, "Couldn't install filter %s: %s\n",
                 filter_exp, pcap_geterr(handle));
@@ -104,21 +177,27 @@ void Sniffer::init() {
 }
 
 void Sniffer::sniffNetwork() {
-
-
+        mode_type == "net";
         pcap_loop(handle, num_packets, this->pkt_callback, NULL);
         pcap_freecode(&fp);
         pcap_close(handle);
-    
+        getchar();
+        for(auto elem : upSize)
+        {
+        std::cout << elem.first << " " << elem.second<<"\n";
+        }
+        for(auto elem : downSize)
+        {
+        std::cout << elem.first << " " << elem.second<<"\n";
+        }
+        plotResults(upSize,"uplink");
+        plotResults(downSize,"downlink");
+
 }
 void Sniffer::sniffNetworkAndWrite() {
-
+    mode_type == "writing";
     if ((pd = pcap_dump_open(handle, PCAP_SAVEFILE)) == NULL) {
-        /*
-         * Print out error message if pcap_dump_open failed. This will
-         * be the below message followed by the pcap library error text,
-         * obtained by pcap_geterr().
-         */
+        
         fprintf(stderr,
                 "Error opening savefile \"%s\" for writing: %s\n",
                 PCAP_SAVEFILE, pcap_geterr(handle));
@@ -126,10 +205,7 @@ void Sniffer::sniffNetworkAndWrite() {
     }
 
     if ((pcount = pcap_dispatch(handle, num_packets, &pcap_dump, (u_char *) pd)) < 0) {
-        /*
-         * Print out appropriate text, followed by the error message
-         * generated by the packet capture library.
-         */
+        
         pcap_perror(handle, prestr);
     }
     printf("Packets received and successfully passed through filter: %d.\n",
@@ -137,17 +213,12 @@ void Sniffer::sniffNetworkAndWrite() {
 
 
 
-    /*
-     * Get the packet capture statistics associated with this packet
-     * capture device. The values represent packet statistics from the time
-     * pcap_open_live() was called up until this call.
-     */
+    
     if (pcap_stats(handle, &ps) != 0) {
         fprintf(stderr, "Error getting Packet Capture stats: %s\n",
                 pcap_geterr(handle));
     }
 
-    /* Print the statistics out */
     printf("Packet Capture Statistics:\n");
     printf("%d packets received by filter\n", ps.ps_recv);
     printf("%d packets dropped by kernel\n", ps.ps_drop);
@@ -172,14 +243,12 @@ void Sniffer::sniffFromFile() {
 void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
 
-    static int count = 1;                   /* packet counter */
+    static int count = 1;                   
 
-    /* declare pointers to packet headers */
-    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
-    const struct sniff_ip *ip;              /* The IP header */
-    const struct sniff_tcp *tcp;            /* The TCP header */
-
-    const char *payload;                    /* Packet payload */
+    const struct sniff_ethernet *ethernet;  
+    const struct sniff_ip *ip;              
+    const struct sniff_tcp *tcp;            
+    const char *payload;                    
     pcap_dumper_t *pd;
     int size_ip;
     int size_tcp;
@@ -188,10 +257,10 @@ void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_
     printf("\nPacket number %d:\n", count);
     count++;
 
-    /* define ethernet header */
+    
     ethernet = (struct sniff_ethernet*)(packet);
 
-    /* define/compute ip header offset */
+    
     ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
     size_ip = IP_HL(ip)*4;
     if (size_ip < 20) {
@@ -199,12 +268,12 @@ void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_
         return;
     }
 
-    /* print source and destination IP addresses */
+    
     printf("       From: %s\n", inet_ntoa(ip->ip_src));
     printf("         To: %s\n", inet_ntoa(ip->ip_dst));
     string src = string((const char*) inet_ntoa(ip->ip_src));
     string dst = string((const char*)inet_ntoa(ip->ip_dst));
-    /* determine protocol */
+    
     switch(ip->ip_p) {
         case IPPROTO_TCP:
             printf("   Protocol: TCP\n");
@@ -223,8 +292,6 @@ void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_
             return;
     }
 
-
-    /* define/compute tcp header offset */
     tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
     size_tcp = TH_OFF(tcp)*4;
     /*if (size_tcp < 20) {
@@ -235,13 +302,14 @@ void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_
     printf("   Src port: %d\n", ntohs(tcp->th_sport));
     printf("   Dst port: %d\n", ntohs(tcp->th_dport));
 
-    /* define/compute tcp payload (segment) offset */
-    payload = (const char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
+    std::cout<<mode_type<<endl;
+    
+    /*payload = (const char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
 
-    /* compute tcp payload (segment) size */
-    size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
+    
+    size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);*/
     char timeArray[20];
-
+    
     if(mode_type == "net") {
         time_t timer;
         struct tm *tm_info;
@@ -251,7 +319,7 @@ void Sniffer::gotPacket(u_char *args, const struct pcap_pkthdr *header, const u_
     }/*else{
         strftime(timeArray, 26, "%S", localtime(&header->ts.tv_sec + readSec) );
     }*/
-    std::cout<<timeArray<<endl;
+    //std::cout<<timeArray<<endl;
     int size = header->len;
     if(split(src) == hostPrefix){
         upSize.insert(std::pair<string,int>(string(timeArray),size));//ntohs(ip->ip_len) - (size_ip + size_tcp)));
