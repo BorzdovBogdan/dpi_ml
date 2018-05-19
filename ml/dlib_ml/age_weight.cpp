@@ -68,12 +68,52 @@ void trainFunc(char* charFileName){
 
     serialize(fileName + "_"+"saved_function.dat") << learned_pfunct;
 }
+void check(char* charFileName, char* checkFile){
+    string fileName((const char*) charFileName);
+    string checkFileName((const char*) checkFile);
+    typedef matrix<double,2,1> sample_type;
+    sample_type m;
+    typedef radial_basis_kernel<sample_type> kernel_type;
+    typedef probabilistic_decision_function<kernel_type> probabilistic_funct_type;  
+    typedef normalized_function<probabilistic_funct_type> pfunct_type;
+
+    pfunct_type learned_pfunct; 
+    deserialize(fileName+"_"+"saved_function.dat") >> learned_pfunct;
+    ifstream infile;
+    infile.open(checkFileName);
+    string line;
+    string token;
+    int correct = 0;
+    int falsh = 0;
+    while(std::getline(infile, line))
+    {
+        
+        std::istringstream ss(line);
+        std::getline(ss, token, ' ');
+        m(0) = std::stoi(token);
+        std::getline(ss, token, ' ');
+        m(1) = std::stoi(token);
+        std::getline(ss, token, ' ');
+        double res = learned_pfunct(m);
+        if((token == "0" && res < 0.5) || (token == "1" && res >=0.5)){
+            correct++;
+        }else if ((token == "0" && res >= 0.5) || (token == "1" && res < 0.5)){
+            falsh++;
+        }
+        std::getline(ss, token, ' ');
+
+    }
+    cout<< "Accuracy: correct predictions: " << correct<<" from "<<1000<<endl;
+
+}
 int main(int argc, char** argv){
-    
+    cout<<"Input: t age_weight_1000 check_strain_1000"<<endl;
     if(argc > 2 && argv[1][0] == 't'){
         trainFunc(argv[2]);
+        check(argv[2],argv[3]);
     }
-    string fileName(argv[2]);
+
+    /*string fileName(argv[2]);
     typedef matrix<double,2,1> sample_type;
     sample_type m;
     typedef radial_basis_kernel<sample_type> kernel_type;
@@ -105,7 +145,7 @@ int main(int argc, char** argv){
     m(0) = 20;
     m(1) = 100;
     cout<<"age = "<<m(0)<<" "<<"weight = "<<m(1)<<endl;
-    cout<< "Healthy on " << 100*learned_pfunct(m) <<" %"<< endl;
+    cout<< "Healthy on " << 100*learned_pfunct(m) <<" %"<< endl;*/
     return 0;
 }
 

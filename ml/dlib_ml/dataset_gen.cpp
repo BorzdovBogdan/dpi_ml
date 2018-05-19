@@ -6,7 +6,7 @@ using namespace std;
 
 void exampleWriter(int count, bool isName){
     std::ofstream myfile;
-    std::string s("strain_"+std::to_string(count));
+    std::string s("check_strain_"+std::to_string(count));
     myfile.open (s);
     vector<string> names = {
     "Abram",
