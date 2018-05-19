@@ -96,15 +96,15 @@ void check(char* charFileName, char* checkFile){
         std::getline(ss, token, ' ');
         double res = learned_pfunct(m);
         if((token == "0" && res < 0.5) || (token == "1" && res >=0.5)){
-            correct++;
-        }else if ((token == "0" && res >= 0.5) || (token == "1" && res < 0.5)){
             falsh++;
+        }else if ((token == "0" && res >= 0.5) || (token == "1" && res < 0.5)){
+            correct++;
         }
         std::getline(ss, token, ' ');
 
     }
-    cout<< "Accuracy: correct predictions: " << correct<<" from "<<1000<<endl;
-
+    cout<< "Accuracy: correct predictions: " << correct <<" from "<<1000<<endl;
+    cout<<"Accuracy: correct predictions: " << falsh <<" from "<<1000<<endl;
 }
 int main(int argc, char** argv){
     cout<<"Input: t age_weight_1000 check_strain_1000"<<endl;
