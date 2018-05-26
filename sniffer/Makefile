@@ -6,3 +6,5 @@ sniff.o: sniff.cpp Sniffer.h
 	g++ -std=c++11 -c sniff.cpp -o sniff.o
 Sniffer.o: Sniffer.cpp Sniffer.h
 	g++ -std=c++11 -c Sniffer.cpp -o  Sniffer.o
+clean:
+	rm -f *.o *.elf
