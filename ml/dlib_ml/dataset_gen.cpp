@@ -4,9 +4,10 @@
 #include <vector>
 using namespace std;
 
-void exampleWriter(int count, bool isName){
+void exampleWriter(std::string strCount, bool isName, std::string name){
+    int count = std::stoi(strCount);
     std::ofstream myfile;
-    std::string s("check_strain_"+std::to_string(count));
+    std::string s(name+"_"+std::to_string(count));
     myfile.open (s);
     vector<string> names = {
     "Abram",
@@ -79,11 +80,11 @@ void exampleWriter(int count, bool isName){
 }
 int main(int argc, char** argv){
     bool isName = false;
-    if(argc > 1 && argv[1][0] == 'n'){
+    /*if(argc > 1 && argv[1][0] == 'n'){
         isName = true;
-    }
-	exampleWriter(10,isName);
-    exampleWriter(100,isName);
-    exampleWriter(1000,isName);
+    }*/
+	//exampleWriter(10,isName);
+    //exampleWriter(100,isName);
+    exampleWriter(argv[2],isName,argv[1]);
 	return 0;
 }
